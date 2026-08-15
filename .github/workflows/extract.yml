@@ -1,1 +1,56 @@
+name: Extract Samsung Partitions
+
+on:
+  workflow_dispatch:
+    inputs:
+      firmware_url:
+        description: 'Paste your Samfrew or SamFw Direct Download Link here'
+        required: true
+        default: ''
+
+jobs:
+  extract:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code Repository
+        uses: actions/checkout@v4
+
+      - name: Install System Utilities
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget unzip p7zip-full
+
+      - name: Fetch Samsung Firmware File
+        run: |
+          echo "Starting cloud download sequence..."
+          wget -O firmware.zip "${{ github.event.inputs.firmware_url }}"
+
+      - name: Unpack Parent Archive Blocks
+        run: |
+          echo "Unzipping primary package tracks..."
+          unzip firmware.zip || true
+          rm -f firmware.zip
+          
+          echo "Locating the primary AP archive block..."
+          AP_FILE=$(ls AP_*.tar.md5 2>/dev/null || ls AP_*.tar 2>/dev/null)
+          if [ -z "$AP_FILE" ]; then
+            echo "ERROR: Could not find any file starting with AP_ inside the archive!"
+            exit 1
+          fi
+          echo "Found active AP container target: $AP_FILE"
+          
+          echo "Surgically harvesting required images..."
+          7z e "$AP_FILE" system.img product.img || tar -xvf "$AP_FILE" system.img product.img || true
+          
+      - name: Package Target Recovered Images
+        run: |
+          echo "Compressing extracted files into a compact bundle..."
+          zip -9 recovery_images.zip system.img product.img
+
+      - name: Generate Direct Output Download Link
+        uses: actions/upload-artifact@v4
+        with:
+          name: Clean-Samsung-Factory-Images
+          path: recovery_images.zip
+          retention-days: 1
 
