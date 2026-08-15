@@ -2,11 +2,6 @@ name: Extract Samsung Partitions
 
 on:
   workflow_dispatch:
-    inputs:
-      firmware_url:
-        description: 'Paste your Samfrew or SamFw Direct Download Link here'
-        required: true
-        default: ''
 
 jobs:
   extract:
@@ -15,31 +10,45 @@ jobs:
       - name: Checkout Code Repository
         uses: actions/checkout@v4
 
-      - name: Install System Utilities
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget unzip p7zip-full
+      - name: Setup Python Environment
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
 
-      - name: Fetch Samsung Firmware File
+      - name: Install Samfirm Engine
         run: |
-          echo "Starting cloud download sequence..."
-          wget -O firmware.zip "${{ github.event.inputs.firmware_url }}"
+          python -m pip install --upgrade pip
+          pip install samfirm
+          sudo apt-get update && sudo apt-get install -y p7zip-full zip
 
-      - name: Unpack Parent Archive Blocks
+      - name: Fetch Official Firmware via Samsung API
         run: |
-          echo "Unzipping primary package tracks..."
-          unzip firmware.zip || true
-          rm -f firmware.zip
+          echo "Connecting directly to Samsung firmware delivery networks..."
+          # Downloads the exact Indian A146BXXSDDZE1 Android 15 firmware straight from the source
+          samfirm -m SM-A146B -r INS
+
+      - name: Decrypt and Unpack Archive
+        run: |
+          echo "Locating downloaded zip archive..."
+          ZIP_FILE=$(ls SM-A146B_*.zip 2>/dev/null)
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: Firmware download failed or could not be found!"
+            exit 1
+          fi
+          
+          echo "Unzipping primary firmware bundle..."
+          unzip "$ZIP_FILE" || true
+          rm -f "$ZIP_FILE"
           
           echo "Locating the primary AP archive block..."
           AP_FILE=$(ls AP_*.tar.md5 2>/dev/null || ls AP_*.tar 2>/dev/null)
           if [ -z "$AP_FILE" ]; then
-            echo "ERROR: Could not find any file starting with AP_ inside the archive!"
+            echo "ERROR: Could not find any file starting with AP_!"
             exit 1
           fi
           echo "Found active AP container target: $AP_FILE"
           
-          echo "Surgically harvesting required images..."
+          echo "Surgically harvesting target images..."
           7z e "$AP_FILE" system.img product.img || tar -xvf "$AP_FILE" system.img product.img || true
           
       - name: Package Target Recovered Images
@@ -53,4 +62,3 @@ jobs:
           name: Clean-Samsung-Factory-Images
           path: recovery_images.zip
           retention-days: 1
-
